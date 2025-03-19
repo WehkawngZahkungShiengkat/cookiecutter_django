@@ -1,0 +1,697 @@
+{% extends "base.html" %} 
+{% load static %} 
+{% block title %} Telegram Chat/Channel Result: {% endblock title %} 
+{% block content %}
+    <div class="card p-3 under-popup">
+        <h1>Fetch Entity Data</h1>
+        <p><i>* In telegram, user or chat(group) or channel is called Entity</i></p>
+
+        <form id="fetch-form">
+            {% csrf_token %}
+
+            <div class="row">
+            <div class="form-group col-md-4">
+                <label for="entity-type">Entity Type:</label>
+                <select
+                id="entity-type"
+                name="entity_type"
+                class="form-control"
+                required
+                >
+                <option value="">Select an entity type</option>
+                {% for type in entities_types %}
+                <option value="{{ type }}">{{ type }}</option>
+                {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group col-md-8">
+                <label for="entity-name">Entity Name:</label>
+                <select
+                id="entity-name"
+                name="entity_id"
+                class="form-control"
+                disabled
+                required
+                >
+                <option value="">Select an entity type first</option>
+                </select>
+            </div>
+            </div>
+
+            <div class="fetch-options">
+            <h3>Fetch Content Options</h3>
+
+            <div class="radio-group">
+                <div class="radio-item">
+                <input
+                    type="radio"
+                    id="fetch-by-default"
+                    name="fetch_type"
+                    value="default"
+                    checked
+                />
+                <label for="fetch-by-default"
+                    >Default (Fetch all unrecorded contents)</label
+                >
+                </div>
+
+                <div class="radio-item">
+                <input type="radio" id="fetch-by-id" name="fetch_type" value="id" />
+                <label for="fetch-by-id">Fetch by ID Range</label>
+                </div>
+
+                <div class="radio-item">
+                <input
+                    type="radio"
+                    id="fetch-by-date"
+                    name="fetch_type"
+                    value="date"
+                />
+                <label for="fetch-by-date">Fetch by Date Range</label>
+                </div>
+            </div>
+
+            <div id="id-range" class="id-range">
+                <div class="form-group">
+                <label for="min-id">Min ID (Fetching start from):</label>
+                <input
+                    type="number"
+                    id="min-id"
+                    name="min_id"
+                    class="form-control"
+                    value="0"
+                />
+                </div>
+
+                <div class="form-group">
+                <label for="limit">Limit Amount:</label>
+                <input
+                    type="number"
+                    id="limit"
+                    name="limit"
+                    class="form-control"
+                    value="100"
+                    min="1"
+                    max="1000"
+                />
+                </div>
+            </div>
+
+            <div id="date-range" class="date-range hidden">
+                <div class="form-group">
+                <label for="start-date">Start Date:</label>
+                <input
+                    type="date"
+                    id="start-date"
+                    name="start_date"
+                    class="form-control"
+                />
+                </div>
+
+                <div class="form-group">
+                <label for="end-date">End Date:</label>
+                <input
+                    type="date"
+                    id="end-date"
+                    name="end_date"
+                    class="form-control"
+                />
+                </div>
+            </div>
+            </div>
+
+            <div class="form-group">
+            {% comment %} <button class="btn-primary" onclick="fetchDataTesting()">
+                Fetch Dummy Data
+            </button> {% endcomment %}
+            <button type="submit" class="btn-primary">Fetch Data</button>
+            </div>
+        </form>
+    </div>
+
+    <div id="loading-indicator" class="hidden">
+        <p>Fetching data<span class="loading-indicator-dots"></span></p>
+    </div>
+    <div id="results-container" class="hidden card p-3 mt-3">
+        <div class="d-flex justify-content-between mb-3">
+            <h2 id="table-title">Dynamic Data Table</h2>
+            <a href="#" onclick="exportVisibleColumnsToCSV();">Download as CSV file</a>
+        </div>
+        <div class="d-flex justify-content-end mtb-3">
+            <input type="number" id="pageInput" name="my_input" class="form-control page-number-input" oninput="updateTable(this.value)" min="0" placeholder="1" aria-label="Recipient's username" aria-describedby="basic-addon2">
+            <div class="input-group-append">
+                <span class="input-group-text" id="maxLengthValue"></span>
+            </div>
+        </div>
+        <h4>Select Columns to Display:</h4>
+        {% comment %} <label>Select Columns to Display:</label> {% endcomment %}
+        <div id="columnToggles"></div>
+        <table id="dataTable">
+            <thead>
+            <tr id="tableHead"></tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+        <div class="flex mt-3">
+            <button id="prevPage" disabled>Previous</button>
+                <span id="pageInfo"></span>
+            <button id="nextPage" disabled>Next</button>
+        </div>
+    </div>
+
+    <div class="fullscreen-container">
+        <div id="editPopup" class="popup">
+            <form id="editForm">
+                {% csrf_token %}
+                <div id="editField">
+                    <input type="hidden" id="editId" />
+                    <div class="form-group">
+                        <label for="editName">Name:</label>
+                        <input type="text" class="form-control" id="editName" />
+                    </div>
+                    <div class="form-group">
+                        <label for="editAge">Age:</label>
+                        <input type="number" class="form-control" id="editAge" />
+                    </div>
+                    <div class="form-group">
+                        <label for="editCity">City:</label>
+                        <input type="text" class="form-control" id="editCity" />
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Save</button>
+                <button type="button" class="btn btn-secondary" onclick="closePopup()">
+                Cancel
+                </button>
+            </form>
+        </div>
+        
+    </div>
+{% endblock content %} {% block inline_javascript %}
+<script>
+    const optionsData = {{ options|safe }};
+    const entityTypeSelect = document.getElementById('entity-type');
+    const entityNameSelect = document.getElementById('entity-name');
+    const fetchByDefaultRadio = document.getElementById('fetch-by-default');
+    const fetchByIdRadio = document.getElementById('fetch-by-id');
+    const fetchByDateRadio = document.getElementById('fetch-by-date');
+    const idRangeDiv = document.getElementById('id-range');
+    const dateRangeDiv = document.getElementById('date-range');
+    const fetchForm = document.getElementById('fetch-form');
+    const loadingIndicator = document.getElementById('loading-indicator');
+    const resultsContainer = document.getElementById('results-container');
+    const tableTitle = document.getElementById('table-title');
+
+    let FetchDataResponse;
+
+    let dataDisplayPageN = 1;
+    const perPage = 50;
+    let tableColumns =[];
+    let fetchDataList = [];
+    let is_download = false;
+    const GET_CONTENTS_API = "{% url 'telegram:get-contents' %}";
+    const CONTENTS_FETCHING_API = "{% url 'telegram:contents-fetching' %}";
+    const UPDATE_CONTENT_API = "{% url 'telegram:update-content' %}";
+
+    function fetchDataTesting() {
+        // Show loading indicator
+        loadingIndicator.classList.remove('hidden');
+
+        fetchData(1);
+        // Attach event listeners after inserting rows
+        // addClickEvent();
+    }
+
+    function setDefaultDates() {
+        const today = new Date();
+        const lastWeek = new Date(today);
+        lastWeek.setDate(lastWeek.getDate() - 7);
+
+        document.getElementById('end-date').valueAsDate = today;
+        document.getElementById('start-date').valueAsDate = lastWeek;
+    }
+
+    function updateEntityNames() {
+        const selectedType = entityTypeSelect.value;
+        entityNameSelect.innerHTML = '';
+
+        if (!selectedType) {
+        entityNameSelect.disabled = true;
+        entityNameSelect.innerHTML = '<option value="">Select an entity type first</option>';
+        return;
+        }
+
+        const filteredOptions = optionsData.filter(option => option.entity_type === selectedType);
+        entityNameSelect.disabled = false;
+        entityNameSelect.innerHTML = '<option value="">Select an entity</option>';
+
+        filteredOptions.forEach(option => {
+        const optionElement = document.createElement('option');
+        optionElement.value = option.entity_id;
+        optionElement.textContent = option.entity_name;
+        entityNameSelect.appendChild(optionElement);
+        });
+    }
+
+    function toggleFetchOptions() {
+        idRangeDiv.classList.toggle('hidden', !fetchByIdRadio.checked);
+        dateRangeDiv.classList.toggle('hidden', !fetchByDateRadio.checked);
+    }
+
+    entityTypeSelect.addEventListener('change', updateEntityNames);
+    fetchByDefaultRadio.addEventListener('change', toggleFetchOptions);
+    fetchByIdRadio.addEventListener('change', toggleFetchOptions);
+    fetchByDateRadio.addEventListener('change', toggleFetchOptions);
+
+    function fetchData(page = 1) {
+        loadingIndicator.classList.remove('hidden');
+        const formData = new FormData(fetchForm);
+        const offsetMinutes = new Date().getTimezoneOffset();
+        const offsetHours = -offsetMinutes / 60; // Convert to positive hours
+        formData.append('timezone_diff_hr', offsetHours);
+        formData.append('page', page);
+
+
+        fetch(CONTENTS_FETCHING_API, {
+            method: 'POST',
+            body: formData
+        })
+        .then(triggerResponse => {
+            if (!triggerResponse.ok) {
+              throw new Error(`HTTP error triggering task! status: ${triggerResponse.status}`);
+            }
+            console.log("Celery task triggered.");
+      
+            // 2. Pause for a few seconds
+            return new Promise(resolve => setTimeout(resolve, 2000)); // 2 seconds delay
+        })
+        .then(() => {
+            // 3. Load Data
+            return fetch(GET_CONTENTS_API, {
+                method: 'POST',
+                body: formData
+            });
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Request failed with status ${response.status}`);
+            }
+            return response.json()})
+        .then(response => {
+            const {
+            entity_id,
+            data,
+            columns,
+            page,
+            has_next,
+            has_previous,
+            total_pages
+            } = response;
+            dataDisplayPageN = page;
+            
+            updateTable(dataDisplayPageN, data, columns);
+
+            fetchDataList = data;
+
+        })
+        .catch(error => {
+            console.error('Error:', error.message);
+            loadingIndicator.classList.add('hidden');
+            alert('An error occurred while fetching data.');
+        });
+        // formData.entries().forEach(value => {
+        //     console.log("FormData value -", value);
+        // });            
+    }
+
+    function updateTable(current_page, data=fetchDataList, columns=tableColumns) {
+        dataDisplayPageN = parseInt(current_page);
+        let prev_dataDisplayEnd = (dataDisplayPageN - 1) * perPage;
+        let current_dataDisplayEnd = (dataDisplayPageN) * perPage;
+        dataToDisplay = data.slice(prev_dataDisplayEnd, current_dataDisplayEnd);
+                
+        availablePageN = Math.ceil(data.length / perPage);
+        $("#pageInput").val(dataDisplayPageN.toString());
+        $("#maxLengthValue").text(`of ${availablePageN} Page(s)`);
+        let has_next = false;
+        let has_previous = false;
+        const currentEntityName = $('#entity-name option:selected').text();
+        const currentEntityType = $('#entity-type').val();
+        tableTitle.textContent = `${currentEntityType}(${currentEntityName}) - Fetched ${data.length} contents.`;
+
+        if (dataDisplayPageN > 1) {
+            has_previous = true;
+        } 
+        if (dataDisplayPageN < availablePageN) {
+            has_next = true;
+        }
+        //console.log("slice data -", dataToDisplay);
+        
+        //console.log("entity_id", entity_id);
+
+        if (!data || !columns.length) {
+            $("#tableBody").html("<tr><td colspan='100%'>No data available</td></tr>");resultsContainer.classList.remove('hidden');
+            loadingIndicator.classList.add('hidden');
+            return;
+        }
+
+        if (!tableColumns.length) {
+        tableColumns = columns;
+        generateColumnToggles(columns);
+        }
+
+        let tableHeadHtml = "";
+        columns.forEach(col => {
+        tableHeadHtml += `<th class="col-${col} text-white bg-info">${col}</th>`;
+        });
+        $("#tableHead").html(tableHeadHtml);
+
+        let tableBodyHtml = "";
+        dataToDisplay.forEach(row => {
+            let tr = `<tr class='clickable-row' data-id=${row['Content-id']}>`;
+            columns.forEach(col => {
+                tr += `<td class="col-${col}">${row[col]}</td>`;
+            });
+            tr += "</tr>";
+            tableBodyHtml += tr;
+        });
+        $("#tableBody").html(tableBodyHtml);
+
+        $("#pageInfo").text(`Fetch data display Page ${dataDisplayPageN} of ${availablePageN}`);
+        $("#prevPage").prop("disabled", !has_previous);
+        $("#nextPage").prop("disabled", !has_next);
+        $("#maxLengthDisplay").text(`${fetchDataList.length}`);
+        
+        applyColumnToggles();
+        resultsContainer.classList.remove('hidden');
+        loadingIndicator.classList.add('hidden');
+
+        // Store the extracted data in the outer variable
+        FetchDataResponse = {
+            dataToDisplay,
+            columns,
+            has_next,
+            has_previous,
+            availablePageN
+        };
+
+    }
+
+    /**
+    * Generate and download a CSV file from a list of objects, showing only visible columns
+    * based on the checked toggle checkboxes
+    * @param {Array} fetchDataList - Array of objects where keys are column names
+    * @param {string} filename - Name of the file to download (without extension)
+    */
+    function exportVisibleColumnsToCSV(filename = "export") {
+        // Validate input
+        if (!Array.isArray(fetchDataList) || fetchDataList.length === 0) {
+            console.error("Data list is empty or not an array");
+            return;
+        }
+
+        // Get visible columns from the checkboxes
+        const visibleColumns = [];
+        $(".toggle-col").each(function() {
+            if ($(this).prop("checked")) {
+            visibleColumns.push($(this).data("col"));
+            }
+        });
+
+        if (visibleColumns.length === 0) {
+            console.error("No visible columns selected");
+            return;
+        }
+
+        // Filter to only include the visible columns
+        const filteredData = fetchDataList.map(row => {
+            const filteredRow = {};
+            visibleColumns.forEach(column => {
+            if (column in row) {
+                filteredRow[column] = row[column];
+            }
+            });
+            return filteredRow;
+        });
+
+        // Create CSV content
+        let csvContent = "";
+
+        // Add header row
+        csvContent += visibleColumns.join(",") + "\n";
+
+        // Add data rows
+        filteredData.forEach(row => {
+            const rowValues = visibleColumns.map(column => {
+            // Handle values that might need escaping (commas, quotes, etc.)
+            let value = row[column] !== undefined ? row[column] : "";
+            
+            // Convert to string
+            value = String(value);
+            
+            // Escape quotes by doubling them and wrap in quotes if needed
+            if (value.includes('"') || value.includes(',') || value.includes('\n')) {
+                value = '"' + value.replace(/"/g, '""') + '"';
+            }
+            
+            return value;
+            });
+            
+            csvContent += rowValues.join(",") + "\n";
+        });
+
+        // Create a blob and download link
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+
+        // Create download link and trigger it
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `${filename}.csv`);
+        document.body.appendChild(link);
+        link.click();
+
+        is_download = true;
+        // Post to the endpoint to update latest download content
+
+        // Clean up
+        setTimeout(() => {
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }, 100);
+    }
+
+    function generateColumnToggles(columns) {
+        let togglesHtml = "";
+        columns.forEach(col => {
+        togglesHtml += `
+                        <label>
+                            <input type="checkbox" class="toggle-col" data-col="${col}" checked> ${col}
+                        </label> `;
+        });
+        $("#columnToggles").html(togglesHtml);
+
+        $(".toggle-col").change(function() {
+        applyColumnToggles();
+        });
+    }
+
+    function applyColumnToggles() {
+        $(".toggle-col").each(function() {
+        const col = $(this).data("col");
+        const isChecked = $(this).prop("checked");
+        $(`.col-${col}`).toggle(isChecked);
+        });
+    }
+
+    $("#prevPage").click(() => updateTable(dataDisplayPageN - 1, fetchDataList, tableColumns));
+    $("#nextPage").click(() => updateTable(dataDisplayPageN + 1, fetchDataList, tableColumns));
+
+    function addClickEvent() {
+        console.log("addClickEvent");
+        console.log(tableTitle.textContent);
+        let rows = document.querySelectorAll(".clickable-row"); // Select all rows
+        console.log(rows);
+
+        rows.forEach(row => {
+            row.addEventListener("click", function() {
+                let rowId = this.getAttribute("data-id");
+                onRowClick(rowId); // Call function when row is clicked
+            });
+
+            row.addEventListener("mouseenter", function() {
+                this.style.backgroundColor = "#f0f0f0"; // Hover effect
+            });
+
+            row.addEventListener("mouseleave", function() {
+                this.style.backgroundColor = ""; // Remove hover effect
+            });
+        });
+    }
+
+    // Attach event listener to `#tableBody` once (Event Delegation)
+    $("#tableBody").on("click", ".clickable-row", function () {
+        console.log("Data - ", $(this).data());
+        let rowId = $(this).data("id"); // Ensure correct attribute name
+        console.log("Clicked Row ID:", rowId);
+
+        if (!FetchDataResponse || !FetchDataResponse.dataToDisplay) {
+            console.warn("FetchDataResponse is undefined or has no dataToDisplay");
+            return;
+        }
+
+        let fetchDataList = FetchDataResponse.dataToDisplay;
+        console.log("Fetched Data List:", fetchDataList);
+
+        let matchedData = fetchDataList.find(data => data['Content-id'] == rowId); // Use `Content-id` from `data`
+
+        if (matchedData) {
+            console.log("Matched Data:", matchedData);
+            let rowRetrievedText = matchedData["Origin-Description"] || "N/A";
+            let rowExtractedText = matchedData["Description"] || "N/A";
+            let rowExtractedDate = matchedData["Date"] || "N/A";
+            let rowExtractedTime = matchedData["Time"] || "N/A";
+
+            // Ensure `onRowClick` exists before calling
+            if (typeof onRowClick === "function") {
+                onRowClick(rowId, rowRetrievedText, rowExtractedText, rowExtractedDate, rowExtractedTime);
+            } else {
+                console.error("onRowClick function is not defined");
+            }
+        } else {
+            console.warn("No matching data found for Row ID:", rowId);
+        }
+    });
+
+    function onRowClick(rowId, RetrievedText, ExtractedText, ExtractedDate, ExtractedTime) {
+        //alert(`Row ID ${rowId} clicked!`);
+        var test = `
+        ပြင်ဦးလွင်
+
+        ပြင်ဦးလွင်ဖြတ်၍ Y-12 Military Transport Aircraft 1စင်း မြောက်သို ပျံသန်း။
+
+        14:51, Feb 17
+        #EAR
+        `
+        var popup_bg_div = $(".fullscreen-container");
+        popup_bg_div.show();
+        $("#editField").html(
+            `
+                <input type="hidden" id="editId" />
+                <div class="form-group">
+                    <label for="editContentId">Content ID</label>
+                    <input type="text" class="form-control" id="contentId" value="${rowId}" disabled/>
+                </div>
+                <div class="form-group">
+                    <label for="editName">Origin Description:</label>
+                    <div id="contentText">${RetrievedText}</div>
+                </div>
+                <div class="form-group">
+                    <label for="editAge">Description:</label>
+                    <textarea rows="4" class="form-control" id="editExtractedText">${ExtractedText}</textarea>
+                </div>
+                <div class="form-group">
+                    <label for="editCity">Extracted Date</label>
+                    <input type="text" class="form-control" id="editExtractedDate" value="${ExtractedDate}" />
+                </div>
+                <div class="form-group">               
+                    <label for="editCity">Extracted Time</label>
+                    <input type="text" class="form-control" id="editExtractedTime" value="${ExtractedTime}" />
+                </div>
+            `
+        )
+        popup_bg_div.on('click', function(event) {
+            if (!$(event.target).closest('.popup').length) {
+                popup_bg_div.hide();
+            }
+        })
+    }
+
+    // Handle form submission
+    $('#editForm').submit(function(event) {
+        event.preventDefault(); // Prevent default form submission
+        var content_id = $('#contentId').val();
+        var form_text = $('#editExtractedText').val();
+        var form_date = $('#editExtractedDate').val();
+        var form_time = $('#editExtractedTime').val();
+        
+        const formData = new FormData(this);
+
+        const offsetMinutes = new Date().getTimezoneOffset();
+        const offsetHours = -offsetMinutes / 60; // Convert to positive hours
+        formData.append('timezone_diff_hr', offsetHours);
+        formData.append('content_id', content_id);
+        formData.append('extracted_text', form_text);
+        formData.append('extracted_date', form_date);
+        formData.append('extracted_time', form_time);
+
+        // Log all keys and values in FormData
+        console.log("Form data contents:");
+        for (let [key, value] of formData.entries()) {
+            console.log(`${key}: ${value}`);
+        }
+                            
+        // Send the data to your endpoint using fetch
+        fetch(UPDATE_CONTENT_API, {
+            method: "POST",
+            //headers: {
+            //    "Content-Type": "application/json",
+            //    "X-CSRFToken": '{{ csrf_token }}',
+            //    "X-Requested-With": "XMLHttpRequest"
+            //},
+            body: formData
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Request failed with status ${response.status}`);
+            }
+            return response.json()})
+        .then(response => {
+            const {
+            entity_id,
+            data,
+            columns,
+            page,
+            has_next,
+            has_previous,
+            total_pages
+            } = response;
+        
+            for (let i = 0; i < fetchDataList.length; i++) {
+                // Check if the current object has the matching ID
+                if (fetchDataList[i]['Content-id'] === parseInt(content_id)) {
+                    // Update the object with new values
+                    fetchDataList[i]['Description'] = form_text;
+                    fetchDataList[i]['Time'] = form_date;
+                    fetchDataList[i]['Date'] = form_time;
+                    break;
+                }
+            }
+            updateTable(dataDisplayPageN, fetchDataList, tableColumns);
+            console.log("Got response - ", response);
+            closePopup();
+
+        })
+        .catch(error => {
+            loadingIndicator.classList.add('hidden');
+            alert("Error submitting data: " + error.message);
+        });
+    });
+
+    function closePopup() {
+        $(".fullscreen-container").hide();
+      }
+
+    fetchForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        fetchData();
+        // Attach event listeners after inserting rows
+        // addClickEvent();
+    });
+
+    document.addEventListener('DOMContentLoaded', function() {
+        setDefaultDates();
+        toggleFetchOptions();
+    });
+</script>
+{% endblock inline_javascript %}

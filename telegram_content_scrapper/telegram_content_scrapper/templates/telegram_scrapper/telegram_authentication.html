@@ -1,0 +1,125 @@
+{% extends "../base.html" %}
+{% load static %}
+{% block content %}
+    <h1 class="text-center custom-h1">Get User's Telegram Account Session through Authentication</h1>
+    <br>
+    <div class="card d-flex justify-content-center align-items-center">
+        <div class="card-body text-center">
+            <h2 class="card-title">OTP Verification</h2>
+            <img class="img-fluid" style="max-width:min(30vw, 100px);height: auto;" src="{% static 'images/icons/secure-icon.jpg' %}" alt="OTP verification">
+            <div id="process-state-caption" class="otp-process-state-cap">
+                {% if msg_need_attention %}
+                    {% for message in messages %}
+                        <p class="card-text same-group-p text-danger">{{ message }}</p>
+                    {% endfor %}
+                {% else %}
+                    <p class="card-text same-group-p">{{ loading_msg }} 
+                        <span class="loading-dots">
+                            <span></span><span></span><span></span><span></span>
+                        </span>
+                    </p>
+                {% endif %}
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <div class="input-group mb-3">
+                    {{ form.code }}
+                </div>
+                <button class="btn btn-primary" type="submit">Verify OTP Code</button>
+            </form>
+        </div>
+            <p>Didn't receive OTP code. 
+                <b><a href="#" class="text-primary" onclick="resendOtpCode()">Resend Code</a></b> or
+                <b><a href="{% url 'users:update' %}" class="text-primary">Update Phone Number</a></b>
+            </p>
+            <p>If still didn't get OTP code, make sure Two-Step Verification is Off.</p>
+    </div>
+    <script>
+        let is_data_loaded = {{ is_data_loaded|yesno:"true,false" }};
+        let is_data_loading = false;
+        let loading_msg = `{{ loading_msg|default:''|escapejs }}`;
+
+        const API_ENDPOINT = "{% url 'telegram:send-otp' %}";
+
+        // Function to load data
+        async function sendOtpCode() {
+            let otpInput = document.querySelector("input[name='code']");  // Selects the OTP input field
+            if (otpInput) {
+                otpInput.value = "";  // Clear input field on page load
+            }
+            is_data_loading = true;
+            if (is_data_loading) {
+                console.log("Loading msg -", loading_msg)
+                let div = document.getElementById("process-state-caption");
+                div.innerHTML = `<p class="card-text same-group-p">${loading_msg} 
+                        <span class="loading-dots">
+                            <span></span><span></span><span></span><span></span>
+                        </span>
+                    </p>`;
+            }
+
+            try {
+                let response = await fetch(API_ENDPOINT, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}'
+                    }
+                });
+                let result = await response.json();
+                console.log(result);
+                loading_msg = result.data.loading_msg || "Default loading message";
+                displayData(result.data);
+                
+                is_data_loaded = true;
+            } catch (error) {
+                console.error("Error fetching data:", error);
+            } finally {
+                is_data_loading = false;
+            }
+        }
+
+        // Function to reload data
+        async function resendOtpCode() {
+            if (!is_data_loading) {
+                sendOtpCode();
+            }
+        }
+
+        // Function to display data
+        function displayData(data) {
+            let div = document.getElementById("process-state-caption");
+            console.log(data);
+            div.innerHTML = "";
+            if (data.is_successed) {
+                data.messages.forEach(message => {
+                    let row = `<p class="card-text same-group-p text-success">${message}</p>`;
+                    div.innerHTML += row;
+                });
+            } else {
+                data.messages.forEach(message => {
+                    let row = `<p class="card-text same-group-p text-danger">${message}</p>`;
+                    div.innerHTML += row;
+                });
+            }
+            
+            console.log(div.innerHTML);
+        }
+
+        // Load data when the page loads
+        window.onload = function() {
+            if (!is_data_loaded && !is_data_loading) {
+                sendOtpCode();
+            }
+        };
+    </script>
+{% comment %}     
+    <script>
+    $(document).ready(function() {
+        $('#resend-code-button').click(function() {
+        // Submit the form again to resend the code
+        $('#verification-code-form').submit();
+        });
+    });
+    </script> {% endcomment %}
+{% endblock content %}

@@ -1,0 +1,365 @@
+{% extends "base.html" %}
+
+{% load static %}
+
+{% block title %}
+  Telegram Chat/Channel Result: 
+  
+{% endblock title %}
+
+
+{% block content %}
+    <div class="card p-3">
+        <h1>Fetch Entity Data</h1>
+        <p><i>* In telegram, user or group or channel is called Entity</i></p>
+        
+        {% comment %} <form id="fetch-form" method="POST" action="{% url 'telegram:contents' %}"> {% endcomment %}
+        <form id="fetch-form">
+        {% comment %} <form action="fetchDataTesting()"> {% endcomment %}
+            {% csrf_token %}
+
+            <div class="row">
+                <div class="form-group col-md-4">
+                    <label for="entity-type">Entity Type:</label>
+                    <select id="entity-type" name="entity_type" class="form-control" required>
+                        <option value="">Select an entity type</option>
+                        {% for type in entities_types %}
+                        <option value="{{ type }}">{{ type }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group col-md-8">
+                    <label for="entity-name">Entity Name:</label>
+                    <select id="entity-name" name="entity_id" class="form-control" disabled required>
+                        <option value="">Select an entity type first</option>
+                    </select>
+                </div>
+            </div>       
+            
+            <div class="fetch-options">
+                <h3>Fetch Content Options</h3>
+                
+                <div class="radio-group">
+                    <div class="radio-item">
+                        <input type="radio" id="fetch-by-default" name="fetch_type" value="default" checked>
+                        <label for="fetch-by-default">Default (Fetch all unrecorded contents)</label>
+                    </div>
+
+                    <div class="radio-item">
+                        <input type="radio" id="fetch-by-id" name="fetch_type" value="id">
+                        <label for="fetch-by-id">Fetch by ID Range</label>
+                    </div>
+
+                    <div class="radio-item">
+                        <input type="radio" id="fetch-by-date" name="fetch_type" value="date">
+                        <label for="fetch-by-date">Fetch by Date Range</label>
+                    </div>
+
+                </div>
+                
+                <div id="id-range" class="id-range">
+                    <div class="form-group">
+                        <label for="min-id">Min ID (latest fetch ID):</label>
+                        <input type="number" id="min-id" name="min_id" class="form-control" value="0">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="limit">Limit Amount:</label>
+                        <input type="number" id="limit" name="limit" class="form-control" value="100" min="1" max="1000">
+                    </div>
+                </div>
+                
+                <div id="date-range" class="date-range hidden">
+                    <div class="form-group">
+                        <label for="start-date">Start Date:</label>
+                        <input type="date" id="start-date" name="start_date" class="form-control">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="end-date">End Date:</label>
+                        <input type="date" id="end-date" name="end_date" class="form-control">
+                    </div>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <button class="btn-primary" onclick="fetchDataTesting()">Fetch Dummy Data</button>
+                <button type="submit" class="btn-primary">Fetch Data</button>
+            </div>
+        </form>
+    </div>
+    
+    <div id="loading-indicator" class="hidden">
+        <p>Fetching data<span class="loading-indicator-dots"></span></p>
+    </div>
+    <div id="results-container" class="hidden card p-3 mt-3">
+        <!-- Results will be displayed here -->
+        <div class="d-flex justify-content-between">
+            <h2 id="table-title">Dynamic Data Table</h2>
+            <button class="btn-primary" onclick="fetchDataTesting()">Reload Data</button>
+        </div>
+        <label>Select Columns to Display:</label>
+        <div id="columnToggles"></div>
+
+        <table id="dataTable">
+            <thead>
+                <tr id="tableHead"></tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+
+        <button id="prevPage" disabled>Previous</button>
+        <span id="pageInfo"></span>
+        <button id="nextPage" disabled>Next</button>
+    
+    </div>
+    
+{% endblock content %}
+{% block inline_javascript %}
+    <script>
+        // Store options data from the backend
+        const optionsData = {{ options|safe }};
+        
+        // References to form elements
+        const entityTypeSelect = document.getElementById('entity-type');
+        const entityNameSelect = document.getElementById('entity-name');
+        const fetchByDefaultRadio = document.getElementById('fetch-by-default');
+        const fetchByIdRadio = document.getElementById('fetch-by-id');
+        const fetchByDateRadio = document.getElementById('fetch-by-date');
+        const idRangeDiv = document.getElementById('id-range');
+        const dateRangeDiv = document.getElementById('date-range');
+        const fetchForm = document.getElementById('fetch-form');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const resultsContainer = document.getElementById('results-container');
+        const table_title = document.getElementById('table-title');
+
+        let current_entity_name = null;
+                
+        
+        // Set default date values (today and a week ago)
+        function setDefaultDates() {
+            const today = new Date();
+            const lastWeek = new Date();
+            lastWeek.setDate(lastWeek.getDate() - 7);
+            
+            document.getElementById('end-date').value = formatDate(today);
+            document.getElementById('start-date').value = formatDate(lastWeek);
+        }
+        
+        // Format date as YYYY-MM-DD for the date input
+        function formatDate(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+        
+        // Update entity names based on selected entity type
+        function updateEntityNames() {
+            const selectedType = entityTypeSelect.value;
+            
+            // Clear and disable entity name select if no type selected
+            entityNameSelect.innerHTML = '';
+            
+            if (!selectedType) {
+                entityNameSelect.disabled = true;
+                entityNameSelect.innerHTML = '<option value="">Select an entity type first</option>';
+                return;
+            }
+            
+            // Filter options based on selected entity type
+            const filteredOptions = optionsData.filter(option => option.entity_type === selectedType);
+            
+            // Enable and populate entity name select
+            entityNameSelect.disabled = false;
+            entityNameSelect.innerHTML = '<option value="">Select an entity</option>';
+            
+            filteredOptions.forEach(option => {
+                const optionElement = document.createElement('option');
+                optionElement.value = option.entity_id;
+                optionElement.textContent = option.entity_name;
+                entityNameSelect.appendChild(optionElement);
+            });
+        }
+        
+        // Toggle between ID range and date range options
+        function toggleFetchOptions() {
+            if (fetchByDefaultRadio.checked) {
+                dateRangeDiv.classList.add('hidden');
+                idRangeDiv.classList.add('hidden');
+            } else if (fetchByIdRadio.checked) {
+                idRangeDiv.classList.remove('hidden');
+                dateRangeDiv.classList.add('hidden');
+            } else {
+                idRangeDiv.classList.add('hidden');
+                dateRangeDiv.classList.remove('hidden');
+            }
+        }
+        
+        // Event listeners
+        entityTypeSelect.addEventListener('change', updateEntityNames);
+        fetchByDefaultRadio.addEventListener('change', toggleFetchOptions);
+        fetchByIdRadio.addEventListener('change', toggleFetchOptions);
+        fetchByDateRadio.addEventListener('change', toggleFetchOptions);
+        
+
+        function fetchDataTesting() {
+            // Show loading indicator
+            loadingIndicator.classList.remove('hidden');
+
+            fetchData(1);
+        }
+        // Form submission
+        fetchForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            // Show loading indicator
+            loadingIndicator.classList.remove('hidden');
+
+            fetchData(currentPage);
+            
+            // You can remove this line if you want the form to submit normally
+            // e.preventDefault();
+            
+            // If you want to handle submission with AJAX, uncomment the below code
+            /*
+            e.preventDefault();
+            
+            const formData = new FormData(fetchForm);
+            
+            fetch(fetchForm.action, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                loadingIndicator.classList.add('hidden');
+                // Handle and display the results
+                displayResults(data);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                loadingIndicator.classList.add('hidden');
+                alert('An error occurred while fetching data.');
+            });
+            */
+        });
+        
+        // Initialize the page
+        document.addEventListener('DOMContentLoaded', function() {
+            setDefaultDates();
+            toggleFetchOptions();
+        });
+        
+        // Function to display results (if using AJAX)
+        function displayResults(data) {
+            resultsContainer.innerHTML = '';
+            
+            // Display results based on the data structure returned from the server
+            // This will depend on your specific implementation
+        }
+
+        let currentPage = 1;
+        const perPage = 10;
+        let allColumns = [];
+        const API_ENDPOINT = "{% url 'telegram:get-contents' %}";
+
+        function fetchData(page = 1) {
+            const apiUrl = "{% url 'telegram:get-contents' %}?page=" + page + "&per_page=" + perPage;
+            $.getJSON(apiUrl).done(function(response) {
+                var current_entity_idx = document.getElementById("entity-name").selectedIndex;
+                var option_entities = document.getElementById("entity-name").options;
+                //console.log("option_entities -", option_entities);
+                var current_entity_name = option_entities[current_entity_idx].innerText
+                //console.log("id -", current_entity_name);
+                //console.log("textContext -", current_entity_name);
+                var current_entity_type = document.getElementById("entity-type").value;
+                //console.log("before", table_title.value);
+                table_title.innerHTML = `${current_entity_type} - ${current_entity_name} text contents.`;
+                //console.log("after", table_title.value);
+                resultsContainer.classList.remove('hidden');
+                updateTable(response);
+                loadingIndicator.classList.add('hidden');
+            })
+            .fail(function() {
+                alert("Error fetching data. Please try again.");
+            });
+        }
+
+
+        function updateTable(response) {
+            const { data, columns, page, has_next, has_previous, total_pages } = response;
+            currentPage = page;
+
+            if (!data || !columns.length) {
+                $("#tableBody").html("<tr><td colspan='100%'>No data available</td></tr>");
+                return;
+            }
+
+            if (!allColumns.length) {
+                allColumns = columns;
+                generateColumnToggles(columns);
+            }
+
+            let tableHeadHtml = "";
+            columns.forEach(col => {
+                tableHeadHtml += `<th class="col-${col} text-white bg-info">${col}</th>`;
+            });
+            $("#tableHead").html(tableHeadHtml);
+
+            let tableBodyHtml = "";
+            data.forEach(row => {
+                let tr = `<tr class='fetch-data-row' data-id=${row.id}>`;
+                columns.forEach(col => {
+                    tr += `<td class="col-${col}">${row[col]}</td>`;
+                });
+                tr += "</tr>";
+                tableBodyHtml += tr;
+            });
+            $("#tableBody").html(tableBodyHtml);
+
+            $("#pageInfo").text(`Page ${page} of ${total_pages}`);
+            $("#prevPage").prop("disabled", !has_previous);
+            $("#nextPage").prop("disabled", !has_next);
+
+            applyColumnToggles();
+        }
+
+        function generateColumnToggles(columns) {
+            let togglesHtml = "";
+            columns.forEach(col => {
+                togglesHtml += `
+                    <label>
+                        <input type="checkbox" class="toggle-col" data-col="${col}" checked> ${col}
+                    </label> `;
+            });
+            $("#columnToggles").html(togglesHtml);
+
+            $(".toggle-col").change(function() {
+                applyColumnToggles();
+            });
+        }
+
+        function applyColumnToggles() {
+            $(".toggle-col").each(function() {
+                const col = $(this).data("col");
+                const isChecked = $(this).prop("checked");
+                $(`.col-${col}`).toggle(isChecked);
+            });
+        }
+
+        $("#prevPage").click(() => fetchData(currentPage - 1));
+        $("#nextPage").click(() => fetchData(currentPage + 1));
+        $('tbody tr').click(function() {
+            const rowId = $(this).data('id'); // Get the data-id attribute value
+            console.log(`Row clicked with ID: ${rowId}`);
+          });
+
+    </script>
+{% endblock inline_javascript %}
+Last edited just now
