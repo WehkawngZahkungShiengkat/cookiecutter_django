@@ -20,8 +20,9 @@ services:
       - ./.envs/.local/.django
       - ./.envs/.local/.postgres
     ports:
-      - '8000:8000'
+      - '8080:8000'
     command: /start
+    restart: unless-stopped
 
   postgres:
     build:
@@ -34,12 +35,14 @@ services:
       - telegram_content_scrapper_local_postgres_data_backups:/backups
     env_file:
       - ./.envs/.local/.postgres
+    restart: unless-stopped
 
   mailpit:
     image: docker.io/axllent/mailpit:latest
     container_name: telegram_content_scrapper_local_mailpit
     ports:
-      - "8025:8025"
+      - "8085:8025"
+    restart: unless-stopped
 
   redis:
     image: docker.io/redis:6
@@ -47,6 +50,7 @@ services:
     
     volumes:
       - telegram_content_scrapper_local_redis_data:/data
+    restart: unless-stopped
     
 
   celeryworker:
@@ -59,6 +63,7 @@ services:
       - mailpit
     ports: []
     command: /start-celeryworker
+    restart: unless-stopped
 
   celerybeat:
     <<: *django
@@ -70,11 +75,13 @@ services:
       - mailpit
     ports: []
     command: /start-celerybeat
+    restart: unless-stopped
 
   flower:
     <<: *django
     image: telegram_content_scrapper_local_flower
     container_name: telegram_content_scrapper_local_flower
     ports:
-      - '5555:5555'
+      - '8555:5555'
     command: /start-flower
+    restart: unless-stopped
